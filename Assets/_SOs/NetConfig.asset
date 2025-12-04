@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6d1a10b55b15de346b575e39e4713a66, type: 3}
+  m_Name: NetConfig
+  m_EditorClassIdentifier: Assembly-CSharp::NetworkConfig
+  DefaultServerIP: 127.0.0.1
+  DefaultPort: 7777
+  ConnectionTimeoutSeconds: 5
+  BufferSize: 4096
+  MaxMessagesPerFrame: 10
+  ServerTickRateHz: 20
+  ClientTickRateHz: 20
+  MaxRetries: 5
+  RetryTimeoutSeconds: 0.2
+  EnableReliableUdp: 1
+  EnableCompression: 1
+  CompressionThresholdBytes: 100
+  EnableMessageValidation: 1
+  MaxTimestampDriftSeconds: 1
+  MaxVelocityMultiplier: 2
+  PlayerMoveSpeed: 7
+  PlayerMaxHealth: 100
+  DayVisionRange: 15
+  NightVisionRange: 8
+  DayVisionAngle: 75
+  NightVisionAngle: 45
+  EnableNetworkLogging: 1
+  EnablePerformanceMonitoring: 1
+  EnableNetworkProfiler: 1
+  ProfilerUpdateInterval: 1
