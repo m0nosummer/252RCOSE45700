@@ -5,9 +5,6 @@ using Arena.Core;
 
 namespace Arena.Network
 {
-    /// <summary>
-    /// Manages TCP/UDP connections and packet transmission.
-    /// </summary>
     public interface IConnectionManager
     {
         event Action<NetworkPacket, int> OnPacketReceived;
@@ -18,6 +15,5 @@ namespace Arena.Network
         Task ConnectToServerAsync(string ip, int port, CancellationToken cancellationToken);
         void SendPackets(NetworkPacket[] packets);
         void Shutdown();
-        NetworkStatistics GetStatistics();
     }
 }

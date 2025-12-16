@@ -5,19 +5,17 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Arena.Core;
-using Arena.Core.DependencyInjection;
 using Arena.Logging;
-using Arena.Network.Profiling;
 
 namespace Arena.Network
 {
     public class ConnectionManager : IConnectionManager
     {
         private readonly IGameLogger _logger;
+        private readonly NetworkConfig _config;
         private readonly NetworkStatistics _stats = new();
-        private readonly ByteArrayPool _bufferPool = new(GameConstants.Network.BufferSize, 50);
+        private readonly ByteArrayPool _bufferPool = new(GameConstants.Protocol.BufferSize, 50);
         
-        private NetworkProfiler _profiler;
         
         // Server components
         private TcpListener _tcpListener;
@@ -37,15 +35,10 @@ namespace Arena.Network
         public event Action<int> OnClientConnected;
         public event Action<int> OnClientDisconnected;
 
-        public ConnectionManager(IGameLogger logger)
+        public ConnectionManager(NetworkConfig config, IGameLogger logger)
         {
+            _config = config ?? throw new ArgumentNullException(nameof(config));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            
-            var container = GameInstaller.Container;
-            if (container != null && container.IsRegistered<NetworkProfiler>())
-            {
-                _profiler = container.Resolve<NetworkProfiler>();
-            }
         }
 
         public Task StartServerAsync(int port, CancellationToken ct)
@@ -83,7 +76,7 @@ namespace Arena.Network
                 _tcpClient.NoDelay = true;
                 
                 var connectTask = _tcpClient.ConnectAsync(ip, port);
-                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(GameConstants.Network.ConnectionTimeoutSeconds), ct);
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(5f), ct);
                 
                 var completedTask = await Task.WhenAny(connectTask, timeoutTask);
                 
@@ -100,6 +93,7 @@ namespace Arena.Network
                 ConfigureUdpSocket(_udpClient);
                 
                 _clientReliableManager = new ReliableUdpManager();
+                _clientReliableManager.Configure(_config.RetryTimeoutSeconds, _config.MaxRetries);
                 
                 // Receive loops
                 _ = Task.Run(() => TcpReceiveLoopAsync(ct), ct);
@@ -150,8 +144,6 @@ namespace Arena.Network
                 }
             }
         }
-
-        public NetworkStatistics GetStatistics() => _stats;
 
         private async Task ReliableUpdateLoopAsync(CancellationToken ct)
         {
@@ -246,6 +238,7 @@ namespace Arena.Network
                         int clientId = GetNextClientId();
                         
                         var session = new ClientSession(clientId, tcpClient, _logger);
+                        session.ReliableManager.Configure(_config.RetryTimeoutSeconds, _config.MaxRetries);
                         _sessions.TryAdd(clientId, session);
                         
                         _ = Task.Run(() => HandleTcpClientAsync(session, ct), ct);
@@ -254,7 +247,7 @@ namespace Arena.Network
                         _logger.Log(LogLevel.Info, "Connection", "Client {0} connected", clientId);
                     }
                     
-                    await Task.Delay(GameConstants.Network.ServerTickRate, ct);
+                    await Task.Delay(50, ct);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -302,8 +295,6 @@ namespace Arena.Network
                 byte[] frameData = new byte[4 + data.Length];
                 Buffer.BlockCopy(lengthHeader, 0, frameData, 0, 4);
                 Buffer.BlockCopy(data, 0, frameData, 4, data.Length);
-
-                _profiler?.RecordPacketSent(frameData.Length);
                 
                 _logger.Log(LogLevel.Debug, "Connection", 
                     "📡 TCP Send: {0} bytes to Target={1}", frameData.Length, targetId);
@@ -349,8 +340,6 @@ namespace Arena.Network
         {
             try
             {
-                _profiler?.RecordPacketSent(data.Length);
-        
                 if (_udpServer != null)  // Server
                 {
                     if (targetId == -1)  // Broadcast
@@ -432,7 +421,7 @@ namespace Arena.Network
                     if (result.Buffer.Length == 8)
                     {
                         uint magic = BitConverter.ToUInt32(result.Buffer, 0);
-                        if (magic == 0x41434B00)
+                        if (magic == GameConstants.Protocol.MagicNumber)
                         {
                             uint seq = BitConverter.ToUInt32(result.Buffer, 4);
                             
@@ -560,7 +549,6 @@ namespace Arena.Network
                             SendAckToServer(packet.Header.SequenceNumber);
                         }
                 
-                        _profiler?.RecordPacketReceived(result.Buffer.Length);
                         OnPacketReceived?.Invoke(packet, 0);
                         _stats.UdpPacketsReceived++;
                     }
@@ -603,7 +591,7 @@ namespace Arena.Network
             
                     int packetLength = BitConverter.ToInt32(lengthBuffer, 0);
             
-                    if (packetLength <= 0 || packetLength > GameConstants.Network.MaxPacketSize)
+                    if (packetLength <= 0 || packetLength > GameConstants.Protocol.MaxPacketSize)
                     {
                         _logger.Log(LogLevel.Error, "Connection", 
                             "Invalid packet length: {0} from client {1}", packetLength, senderId);
@@ -618,8 +606,6 @@ namespace Arena.Network
             
                     if (!await ReadExactAsync(stream, dataBuffer, 0, packetLength, ct))
                         break;
-            
-                    _profiler?.RecordPacketReceived(packetLength);
             
                     var packet = NetworkPacket.Deserialize(dataBuffer, packetLength);
             
@@ -704,8 +690,8 @@ namespace Arena.Network
 
         private void ConfigureUdpSocket(UdpClient client)
         {
-            client.Client.ReceiveBufferSize = GameConstants.Network.BufferSize * 4;
-            client.Client.SendBufferSize = GameConstants.Network.BufferSize * 4;
+            client.Client.ReceiveBufferSize = GameConstants.Protocol.BufferSize * 4;
+            client.Client.SendBufferSize = GameConstants.Protocol.BufferSize * 4;
             
             try
             {

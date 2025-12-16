@@ -35,11 +35,6 @@ namespace Arena.Network
             LastActivityAt = DateTime.UtcNow;
         }
         
-        public TimeSpan GetIdleTime()
-        {
-            return DateTime.UtcNow - LastActivityAt;
-        }
-        
         public void Dispose()
         {
             try

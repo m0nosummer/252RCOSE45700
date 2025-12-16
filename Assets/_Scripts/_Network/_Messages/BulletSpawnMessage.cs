@@ -9,8 +9,8 @@ namespace Arena.Network.Messages
     {
         public override MessageType Type => MessageType.BulletSpawn;
         
-        public uint BulletId { get; set; }           // 서버가 부여한 고유 ID
-        public int OwnerId { get; set; }             // 발사한 플레이어 ID
+        public uint BulletId { get; set; }           // ID given by server
+        public int OwnerId { get; set; }             // Player who fire
         public Vector3 SpawnPosition { get; set; }
         public Vector3 Direction { get; set; }
         public float Speed { get; set; }

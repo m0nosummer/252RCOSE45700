@@ -8,6 +8,7 @@ namespace Arena.Network
 {
     public static class MessageFactory
     {
+        // TODO Debug 고치기
         private static readonly Dictionary<MessageType, Func<INetworkMessage>> messageCreators 
             = new Dictionary<MessageType, Func<INetworkMessage>>
         {
@@ -19,6 +20,7 @@ namespace Arena.Network
             { MessageType.BulletDestroy, () => new BulletDestroyMessage() },
             { MessageType.PlayerJoined, () => new PlayerJoinedMessage() },
             { MessageType.PlayerLeft, () => new PlayerLeftMessage() },
+            { MessageType.GameTime, () => new GameTimeMessage() }, 
         };
         
         public static INetworkMessage CreateMessage(byte[] buffer, int length)
@@ -49,15 +51,6 @@ namespace Arena.Network
                 Debug.LogError($"[MessageFactory] Failed to create message: {e.Message}");
                 return null;
             }
-        }
-        
-        public static void RegisterMessageType(MessageType type, Func<INetworkMessage> creator)
-        {
-            if (messageCreators.ContainsKey(type))
-            {
-                Debug.LogWarning($"[MessageFactory] Message type {type} already registered. Overwriting...");
-            }
-            messageCreators[type] = creator;
         }
     }
 }

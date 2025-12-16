@@ -1,3 +1,4 @@
+using Arena.Core;
 using UnityEngine;
 using Arena.Logging;
 using Arena.Core.DependencyInjection;
@@ -40,7 +41,7 @@ namespace Arena.Combat
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             
             col.isTrigger = true;
-            col.radius = 0.1f;
+            col.radius = GameConstants.Physics.BulletRadius;
             
             var container = GameInstaller.Container;
             if (container != null && container.IsRegistered<IGameLogger>())
@@ -61,30 +62,7 @@ namespace Arena.Combat
                 ReturnToPool();
             }
         }
-
-        public void Fire(Vector3 direction, int ownerPlayerId, float customDamage = 0)
-        {
-            _ownerPlayerId = ownerPlayerId;
-            _spawnTime = Time.time;
-            _hasHit = false;
-            _isNetworkControlled = false;
-            
-            if (customDamage > 0)
-                damage = customDamage;
-            
-            direction.y = 0;
-            direction.Normalize();
-            
-            transform.forward = direction;
-            rb.linearVelocity = direction * speed;
-            
-            if (trail != null)
-            {
-                trail.Clear();
-                trail.emitting = true;
-            }
-        }
-
+        
         public void FireFromNetwork(uint networkId, Vector3 direction, int ownerPlayerId, float bulletSpeed, float bulletDamage)
         {
             _networkId = networkId;
@@ -151,14 +129,14 @@ namespace Arena.Combat
                 trail.emitting = false;
             }
             
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
+            if (rb != null && !rb.isKinematic)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
             
             gameObject.SetActive(false);
             Destroy(gameObject, 0.1f);
         }
-
-        public int GetOwnerPlayerId() => _ownerPlayerId;
-        public float GetDamage() => damage;
     }
 }

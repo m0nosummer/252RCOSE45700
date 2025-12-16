@@ -9,11 +9,11 @@ namespace Arena.Gameplay
         
         [Header("Camera Settings")]
         [SerializeField] private Vector3 offset = new Vector3(0, 13, -10);
-        [SerializeField] private float smoothSpeed = 10f;
+        [SerializeField] private float smoothSpeed = 3f;
         [SerializeField] private bool useFixedOffset = true;
         
         [Header("Rotation Settings")]
-        [SerializeField] private Vector3 fixedRotation = new Vector3(45f, 0f, 0f);
+        [SerializeField] private Vector3 fixedRotation = new Vector3(60f, 0f, 0f);
         
         void Start()
         {

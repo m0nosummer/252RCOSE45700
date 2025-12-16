@@ -1,12 +1,13 @@
 using System;
 using System.IO;
+using Arena.Core;
 
 namespace Arena.Network
 {
     public class PacketHeader
     {
-        public uint MagicNumber { get; set; } = 0x41524E41; // "ARNA"
-        public byte Version { get; set; } = 1;
+        public uint MagicNumber { get; set; } = GameConstants.Protocol.MagicNumber;
+        public byte Version { get; set; } = GameConstants.Protocol.ProtocolVersion;
         public PacketType Type { get; set; }
         public PacketFlags Flags { get; set; }
         

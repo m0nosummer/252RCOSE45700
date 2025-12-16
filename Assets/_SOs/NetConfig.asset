@@ -14,26 +14,32 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NetworkConfig
   DefaultServerIP: 127.0.0.1
   DefaultPort: 7777
-  ConnectionTimeoutSeconds: 5
-  BufferSize: 4096
-  MaxMessagesPerFrame: 10
   ServerTickRateHz: 20
   ClientTickRateHz: 20
+  MaxMessagesPerFrame: 10
+  ConnectionTimeoutSeconds: 5
   MaxRetries: 5
   RetryTimeoutSeconds: 0.2
-  EnableReliableUdp: 1
   EnableCompression: 1
   CompressionThresholdBytes: 100
-  EnableMessageValidation: 1
-  MaxTimestampDriftSeconds: 1
-  MaxVelocityMultiplier: 2
   PlayerMoveSpeed: 7
+  PlayerRotationSpeed: 720
   PlayerMaxHealth: 100
-  DayVisionRange: 15
-  NightVisionRange: 8
+  AttackDamage: 25
+  BulletSpeed: 20
+  BulletLifetime: 3
+  FireRate: 0.5
+  InterpolationSpeed: 20
+  SnapThreshold: 5
+  ReconciliationThreshold: 0.3
+  HardReconciliationThreshold: 1
+  ReconciliationInterval: 0.1
+  DayCircleVisionRange: 5
+  NightCircleVisionRange: 4
+  DayConeVisionRange: 25
+  NightConeVisionRange: 15
   DayVisionAngle: 75
-  NightVisionAngle: 45
-  EnableNetworkLogging: 1
-  EnablePerformanceMonitoring: 1
-  EnableNetworkProfiler: 1
-  ProfilerUpdateInterval: 1
+  NightVisionAngle: 60
+  DayFogOpacity: 0.8
+  NightFogOpacity: 1
+  CycleDuration: 10

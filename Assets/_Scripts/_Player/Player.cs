@@ -6,6 +6,8 @@ using Arena.Network.Messages;
 using Arena.Logging;
 using Arena.Player.States;
 using Arena.Input;
+using Arena.Vision;
+using FischlWorks_FogWar;
 
 namespace Arena.Player
 {
@@ -20,13 +22,7 @@ namespace Arena.Player
         [SerializeField] private int playerId = -1;
         [SerializeField] private bool isLocalPlayer = false;
         
-        [Header("Movement")]
-        [SerializeField] private float rotationSpeed = 720f;
-        
         [Header("Combat")]
-        [SerializeField] private float attackDamage = 25f;
-        [SerializeField] private float bulletSpeed = 20f;
-        [SerializeField] private float fireRate = 0.5f;
         [SerializeField] private GameObject bulletPrefab;
         [SerializeField] private Transform firePoint;
         
@@ -36,25 +32,36 @@ namespace Arena.Player
 
         public int PlayerId => playerId;
         public bool IsLocalPlayer => isLocalPlayer;
-        
         public float MoveSpeed => networkConfig != null ? networkConfig.PlayerMoveSpeed : 7f;
-        public float RotationSpeed => rotationSpeed;
+        public float RotationSpeed => networkConfig != null ? networkConfig.PlayerRotationSpeed : 720f;
         public Rigidbody Rigidbody => rb;
         public float Health { get; private set; }
-        public bool IsAlive => Health > 0;
+        public bool IsAlive { get; private set; }
+        public NetworkConfig Config => networkConfig;
 
         private INetworkService _networkService;
         private IGameLogger _logger;
         
+        // State Machine
         private IPlayerState _currentState;
         private LocalPlayerState _localState;
         private RemotePlayerState _remoteState;
+        private DeadPlayerState _deadState;
         
         private PlayerInputHandler _inputHandler;
         
         private float _lastFireTime = float.NegativeInfinity;
         private Material _playerMaterial;
         private Color _originalColor;
+        
+        // FogWar
+        private csFogWar _fogWar;
+        private int _fogRevealerIndex = -1;
+        private Camera _mainCamera;
+        
+        // Day/Night
+        private GameTimerUI _gameTimerUI;
+        private bool _currentIsNight = false;
 
         private void Awake()
         {
@@ -65,6 +72,7 @@ namespace Arena.Player
             
             InitializeComponents();
             InjectDependencies();
+            _mainCamera = Camera.main;
         }
         
         private void Start()
@@ -74,13 +82,28 @@ namespace Arena.Player
             SetupVisuals();
             
             Health = networkConfig != null ? networkConfig.PlayerMaxHealth : 100f;
-            Debug.Log($"[PLAYER {playerId}] Using MoveSpeed: {MoveSpeed}");
-            _logger.Log(LogLevel.Info, "Player", "Player {0} initialized - IsLocal: {1}", playerId, isLocalPlayer);
+            IsAlive = true;
+            
+            _gameTimerUI = FindAnyObjectByType<GameTimerUI>();
+            if (_gameTimerUI != null)
+            {
+                _gameTimerUI.OnDayNightChanged += OnDayNightChanged;
+                _currentIsNight = _gameTimerUI.IsNight;
+            }
+            
+            _logger?.Log(LogLevel.Info, "Player", "Player {0} initialized - IsLocal: {1}", playerId, isLocalPlayer);
         }
         
         private void Update()
         {
             _currentState?.Update();
+            
+            if (!IsAlive) return;
+            
+            if (isLocalPlayer)
+            {
+                UpdateFogConeDirection();
+            }
             
             if (isLocalPlayer && _inputHandler != null && _inputHandler.FirePressed && CanFire())
             {
@@ -96,6 +119,13 @@ namespace Arena.Player
         private void OnDestroy()
         {
             UnsubscribeFromNetworkEvents();
+            UnregisterFromVisionReceiver();
+            UnregisterFromFogWar();
+            
+            if (_gameTimerUI != null)
+            {
+                _gameTimerUI.OnDayNightChanged -= OnDayNightChanged;
+            }
         }
 
         private void InitializeComponents()
@@ -115,7 +145,7 @@ namespace Arena.Player
             
             if (container == null)
             {
-                Debug.LogError("[Player] DIContainer not found! Make sure GameInstaller exists.");
+                Debug.LogError("[Player] DIContainer not found!");
                 return;
             }
 
@@ -125,8 +155,9 @@ namespace Arena.Player
 
         private void InitializeStates()
         {
-            _localState = new LocalPlayerState(this, _networkService, _logger);
-            _remoteState = new RemotePlayerState(this, _logger);
+            _localState = new LocalPlayerState(this, _networkService, _logger, networkConfig);
+            _remoteState = new RemotePlayerState(this, _logger, networkConfig);
+            _deadState = new DeadPlayerState(this, _logger);
             
             _currentState = isLocalPlayer ? (IPlayerState)_localState : _remoteState;
             _currentState.OnEnter();
@@ -159,11 +190,126 @@ namespace Arena.Player
                 meshRenderer.material = _playerMaterial;
             }
         }
+        
+        private void OnDayNightChanged(bool isNight)
+        {
+            if (!isLocalPlayer) return;
+    
+            _currentIsNight = isNight;
+    
+            UnregisterFromFogWar();
+            RegisterWithFogWar();
+    
+            _logger?.Log(LogLevel.Info, "Player", "Vision: {0} - Range={1}, Angle={2}", 
+                isNight ? "NIGHT" : "DAY",
+                networkConfig.GetConeVisionRange(isNight),
+                networkConfig.GetConeVisionAngle(isNight));
+        }
+        
+        private void UpdateFogConeDirection()
+        {
+            if (_fogWar == null || _fogRevealerIndex < 0) return;
+            if (_fogRevealerIndex >= _fogWar._FogRevealers.Count) return;
+            
+            if (_mainCamera == null) _mainCamera = Camera.main;
+            if (_mainCamera == null) return;
+
+            Vector2 mouseScreenPos = Vector2.zero;
+            
+            if (UnityEngine.InputSystem.Mouse.current != null)
+            {
+                mouseScreenPos = UnityEngine.InputSystem.Mouse.current.position.ReadValue();
+            }
+            else
+            {
+                return;
+            }
+
+            Ray ray = _mainCamera.ScreenPointToRay(mouseScreenPos);
+            Plane groundPlane = new Plane(Vector3.up, new Vector3(0, transform.position.y, 0));
+            
+            if (groundPlane.Raycast(ray, out float distance))
+            {
+                Vector3 mouseWorldPos = ray.GetPoint(distance);
+                Vector3 direction = mouseWorldPos - transform.position;
+                direction.y = 0;
+                
+                if (direction.sqrMagnitude > 0.01f)
+                {
+                    _fogWar._FogRevealers[_fogRevealerIndex].SetConeDirection(direction.normalized);
+                }
+            }
+        }
+        
+        private void RegisterWithVisionReceiver()
+        {
+            if (playerId < 0) return;
+    
+            var visionReceiver = FindAnyObjectByType<VisionReceiver>();
+            if (visionReceiver != null)
+            {
+                visionReceiver.RegisterPlayer(playerId, gameObject);
+                _logger?.Log(LogLevel.Debug, "Player", 
+                    "Player {0} registered with VisionReceiver", playerId);
+            }
+        }
+        
+        private void UnregisterFromVisionReceiver()
+        {
+            if (playerId < 0) return;
+    
+            var visionReceiver = FindAnyObjectByType<VisionReceiver>();
+            if (visionReceiver != null)
+            {
+                visionReceiver.UnregisterPlayer(playerId);
+            }
+        }
+        
+        private void RegisterWithFogWar()
+        {
+            if (!isLocalPlayer) return;
+    
+            _fogWar = FindAnyObjectByType<csFogWar>();
+            if (_fogWar != null)
+            {
+                int circleRange = Mathf.RoundToInt(networkConfig.GetBaseVisionRange(_currentIsNight));
+                int coneRange = Mathf.RoundToInt(networkConfig.GetConeVisionRange(_currentIsNight));
+                float coneAngle = networkConfig.GetConeVisionAngle(_currentIsNight);
+        
+                var revealer = new csFogWar.FogRevealer(
+                    transform,
+                    circleRange,
+                    coneRange,
+                    coneAngle,
+                    false
+                );
+        
+                _fogRevealerIndex = _fogWar.AddFogRevealer(revealer);
+        
+                _logger?.Log(LogLevel.Info, "Player", 
+                    "FogWar registered - Base:{0}, Cone:{1}, Angle:{2}", circleRange, coneRange, coneAngle);
+            }
+            else
+            {
+                _logger?.Log(LogLevel.Warning, "Player", "csFogWar not found in scene!");
+            }
+        }
+        
+        private void UnregisterFromFogWar()
+        {
+            if (_fogWar != null && _fogRevealerIndex >= 0)
+            {
+                _fogWar.RemoveFogRevealer(_fogRevealerIndex);
+                _fogRevealerIndex = -1;
+            }
+        }
 
         public void SetPlayerId(int id)
         {
             playerId = id;
             UpdateObjectName();
+            RegisterWithVisionReceiver();
+            RegisterWithFogWar();
         }
         
         public void SetLocalPlayer(bool isLocal)
@@ -171,12 +317,19 @@ namespace Arena.Player
             isLocalPlayer = isLocal;
             
             _currentState?.OnExit();
+            
+            if (_localState == null)
+                _localState = new LocalPlayerState(this, _networkService, _logger, networkConfig);
+            if (_remoteState == null)
+                _remoteState = new RemotePlayerState(this, _logger, networkConfig);
+            
             _currentState = isLocal ? (IPlayerState)_localState : _remoteState;
             _currentState?.OnEnter();
             
             if (isLocal)
             {
                 _inputHandler = GetComponent<PlayerInputHandler>();
+                RegisterWithFogWar();
             }
             
             if (_playerMaterial != null)
@@ -195,18 +348,17 @@ namespace Arena.Player
         
         private bool CanFire()
         {
+            float fireRate = networkConfig != null ? networkConfig.FireRate : 0.5f;
             return IsAlive && Time.time - _lastFireTime >= fireRate;
         }
 
         private void Fire()
         {
             _lastFireTime = Time.time;
-    
-            Debug.Log($"[LOCAL] Player {playerId} calling Fire()");
 
             if (bulletPrefab == null)
             {
-                _logger.Log(LogLevel.Error, "Player", "Bullet prefab not assigned!");
+                _logger?.Log(LogLevel.Error, "Player", "Bullet prefab not assigned!");
                 return;
             }
 
@@ -216,8 +368,8 @@ namespace Arena.Player
 
             SendFireMessage(spawnPos, transform.forward);
     
-            _logger.Log(LogLevel.Debug, "Player", 
-                "Player {0} sent fire request to server", playerId);
+            _logger?.Log(LogLevel.Debug, "Player", 
+                "Player {0} sent fire request", playerId);
         }
 
         private void SendFireMessage(Vector3 position, Vector3 direction)
@@ -225,12 +377,15 @@ namespace Arena.Player
             if (_networkService == null || !_networkService.IsConnected)
                 return;
             
+            float damage = networkConfig != null ? networkConfig.AttackDamage : 25f;
+            float speed = networkConfig != null ? networkConfig.BulletSpeed : 20f;
+            
             var fireMsg = new FireMessage
             {
                 FirePosition = position,
                 FireDirection = direction,
-                Damage = attackDamage,
-                BulletSpeed = bulletSpeed
+                Damage = damage,
+                BulletSpeed = speed
             };
             
             _networkService.SendMessage(fireMsg);
@@ -242,7 +397,8 @@ namespace Arena.Player
             
             Health -= damage;
             
-            _logger.Log(LogLevel.Info, "Player", "Player {0} took {1} damage from Player {2}. Health: {3}", 
+            _logger?.Log(LogLevel.Info, "Player", 
+                "Player {0} took {1} damage from Player {2}. Health: {3}", 
                 playerId, damage, attackerId, Health);
             
             if (_playerMaterial != null)
@@ -267,7 +423,19 @@ namespace Arena.Player
 
         private void Die()
         {
-            _logger.Log(LogLevel.Info, "Player", "Player {0} died", playerId);
+            _logger?.Log(LogLevel.Info, "Player", "Player {0} died", playerId);
+            
+            IsAlive = false;
+            
+            if (_inputHandler != null)
+            {
+                _inputHandler.DisableInput();
+            }
+            
+            _currentState?.OnExit();
+            _currentState = _deadState;
+            _currentState.OnEnter();
+            
             gameObject.SetActive(false);
         }
 
@@ -291,20 +459,43 @@ namespace Arena.Player
         {
             if (senderId != 0)
             {
-                _logger.Log(LogLevel.Warning, "Player", 
+                _logger?.Log(LogLevel.Warning, "Player", 
                     "Rejected PlayerState from non-server source: {0}", senderId);
                 return;
             }
     
             if (message is PlayerStateMessage stateMsg && stateMsg.PlayerId == playerId)
             {
+                float prevHealth = Health;
+                Health = stateMsg.Health;
+                
+                if (Health < prevHealth && Health > 0)
+                {
+                    _logger?.Log(LogLevel.Info, "Player", 
+                        "Player {0} hit! {1} → {2}", playerId, prevHealth, Health);
+                    
+                    if (_playerMaterial != null)
+                    {
+                        _playerMaterial.color = Color.red;
+                        Invoke(nameof(ResetColor), 0.1f);
+                    }
+                }
+                
+                if (!stateMsg.IsAlive && IsAlive)
+                {
+                    IsAlive = false;
+                    Die();
+                    return;
+                }
+                
+                if (!IsAlive) return;
+                
                 if (isLocalPlayer)
                 {
                     _localState?.OnServerStateReceived(stateMsg);
                 }
                 else
                 {
-                    Health = stateMsg.Health;
                     _remoteState?.SetTargetTransform(stateMsg.Position, stateMsg.Rotation, stateMsg.Velocity);
                 }
             }

@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Arena.Core;
+using Arena.Network;
 using Arena.Network.Messages;
 using Arena.Logging;
 using Arena.Input;
@@ -12,6 +13,7 @@ namespace Arena.Player.States
         private readonly Player _player;
         private readonly INetworkService _networkService;
         private readonly IGameLogger _logger;
+        private readonly NetworkConfig _config;
         
         private PlayerInputHandler _inputHandler;
         private Vector2 _moveInput;
@@ -22,21 +24,19 @@ namespace Arena.Player.States
         private const int MAX_PENDING_INPUTS = 60;
 
         private float _lastReconciliationTime;
-        private const float MIN_RECONCILIATION_INTERVAL = 0.1f;
-        
         private float _lastInputSendTime;
-        private const float INPUT_SEND_INTERVAL = 0.05f; // 20Hz
 
-        public LocalPlayerState(Player player, INetworkService networkService, IGameLogger logger)
+        public LocalPlayerState(Player player, INetworkService networkService, IGameLogger logger, NetworkConfig config)
         {
             _player = player;
             _networkService = networkService;
             _logger = logger;
+            _config = config;
         }
 
         public void OnEnter()
         {
-            _logger.Log(LogLevel.Debug, "Player", 
+            _logger?.Log(LogLevel.Debug, "Player", 
                 "Local player state activated for {0}", _player.PlayerId);
     
             if (_player.Rigidbody != null)
@@ -79,22 +79,26 @@ namespace Arena.Player.States
 
             float positionError = Vector3.Distance(_player.transform.position, serverState.Position);
             
-            if (positionError < 0.3f)
+            float reconciliationThreshold = _config != null ? _config.ReconciliationThreshold : 0.3f;
+            float hardThreshold = _config != null ? _config.HardReconciliationThreshold : 1.0f;
+            float reconciliationInterval = _config != null ? _config.ReconciliationInterval : 0.1f;
+            
+            if (positionError < reconciliationThreshold)
             {
                 return;
             }
             
             float timeSinceLastReconciliation = Time.time - _lastReconciliationTime;
-            if (timeSinceLastReconciliation < MIN_RECONCILIATION_INTERVAL && positionError < 1.0f)
+            if (timeSinceLastReconciliation < reconciliationInterval && positionError < hardThreshold)
             {
                 return;
             }
             
             _lastReconciliationTime = Time.time;
             
-            if (positionError > 1.0f)
+            if (positionError > hardThreshold)
             {
-                _logger.Log(LogLevel.Debug, "Player",
+                _logger?.Log(LogLevel.Debug, "Player",
                     "Desync {0:F2}m - reconciling", positionError);
                 
                 _player.transform.position = serverState.Position;
@@ -114,7 +118,7 @@ namespace Arena.Player.States
                 
                 _player.transform.position = replayPosition;
             }
-            else if (positionError > 0.3f)
+            else if (positionError > reconciliationThreshold)
             {
                 _player.transform.position = Vector3.Lerp(
                     _player.transform.position,
@@ -136,7 +140,9 @@ namespace Arena.Player.States
             _moveInput = _inputHandler.MoveInput;
             _mouseWorldPosition = _inputHandler.MouseWorldPosition;
             
-            if (Time.time - _lastInputSendTime >= INPUT_SEND_INTERVAL)
+            float inputSendInterval = _config != null ? _config.GetInputSendInterval() : 0.05f;
+            
+            if (Time.time - _lastInputSendTime >= inputSendInterval)
             {
                 SendInputToServer();
                 _lastInputSendTime = Time.time;
@@ -167,7 +173,7 @@ namespace Arena.Player.States
             Vector3 movement = velocity * Time.fixedDeltaTime;
             _player.transform.position += movement;
             
-            if (Physics.Raycast(_player.transform.position, Vector3.down, out RaycastHit hit, 2f))
+            if (Physics.Raycast(_player.transform.position, Vector3.down, out RaycastHit hit, GameConstants.Physics.GroundRayDistance))
             {
                 _player.transform.position = new Vector3(
                     _player.transform.position.x,
@@ -221,7 +227,7 @@ namespace Arena.Player.States
 
         private void OnFireInput()
         {
-            
+            // Fire handled in Player.cs
         }
         
         public void OnExit()

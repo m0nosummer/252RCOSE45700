@@ -4,9 +4,9 @@ using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using UnityEngine;
 using Arena.Core;
-using Arena.Core.Utilities;
+using Arena.Core.DependencyInjection;
 using Arena.Logging;
-using Arena.Network.Profiling;
+using Arena.Network.Messages;
 
 namespace Arena.Network
 {
@@ -14,7 +14,6 @@ namespace Arena.Network
     {
         private IGameLogger _logger;
         private NetworkConfig _config;
-        private NetworkProfiler _profiler;
         
         private IConnectionManager _connectionManager;
         private IPacketProcessor _packetProcessor;
@@ -38,7 +37,7 @@ namespace Arena.Network
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             
-            var container = Arena.Core.DependencyInjection.GameInstaller.Container;
+            var container = GameInstaller.Container;
             if (container == null)
             {
                 throw new InvalidOperationException("DIContainer not initialized!");
@@ -48,12 +47,6 @@ namespace Arena.Network
             _connectionManager = container.Resolve<IConnectionManager>();
             _packetProcessor = container.Resolve<IPacketProcessor>();
             _messageRouter = container.Resolve<IMessageRouter>();
-            
-            if (container.IsRegistered<NetworkProfiler>())
-            {
-                _profiler = container.Resolve<NetworkProfiler>();
-                _logger.Log(LogLevel.Debug, "Network", "NetworkProfiler integrated");
-            }
             
             _logger.Log(LogLevel.Info, "Network", "NetworkService initialized via DI Container");
         }
@@ -130,8 +123,6 @@ namespace Arena.Network
 
             try
             {
-                _profiler?.RecordMessage(message.Type);
-                
                 var packets = _packetProcessor.CreatePackets(message);
                 
                 foreach (var packet in packets)
@@ -163,12 +154,7 @@ namespace Arena.Network
             
             _logger.Log(LogLevel.Info, "Network", "Disconnected");
         }
-
-        public NetworkStatistics GetStatistics()
-        {
-            return _connectionManager?.GetStatistics() ?? new NetworkStatistics();
-        }
-
+        
         private void SubscribeToConnectionEvents()
         {
             _connectionManager.OnPacketReceived += HandlePacketReceived;
@@ -183,14 +169,11 @@ namespace Arena.Network
                 var message = _packetProcessor.ProcessPacket(packet);
                 if (message != null)
                 {
-                    _profiler?.RecordMessage(message.Type);
-            
                     int senderId = actualSenderId;
             
                     if (!IsServer && message.Type == MessageType.Handshake && LocalClientId < 0)
                     {
-                        var handshake = message as Arena.Network.Messages.HandshakeMessage;
-                        if (handshake != null && senderId == 0 && handshake.TargetId > 0)
+                        if (message is HandshakeMessage handshake && senderId == 0 && handshake.TargetId > 0)
                         {
                             LocalClientId = handshake.TargetId;
                             _logger.Log(LogLevel.Info, "Network", 

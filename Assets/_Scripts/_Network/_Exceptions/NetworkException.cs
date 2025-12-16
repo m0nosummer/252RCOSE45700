@@ -30,8 +30,5 @@ namespace Arena.Network
         ConnectionFailed = 3,
         PacketCreationFailed = 4,
         DecompressionFailed = 5,
-        InvalidPacket = 6,
-        ClientDisconnected = 7,
-        UnknownMessageType = 8
     }
 }

@@ -2,7 +2,6 @@ using UnityEngine;
 using Arena.Network;
 using Arena.Logging;
 using Arena.Core.Utilities;
-using Arena.Network.Profiling;
 
 namespace Arena.Core.DependencyInjection
 {
@@ -36,7 +35,14 @@ namespace Arena.Core.DependencyInjection
         {
             var dispatcher = gameObject.AddComponent<UnityMainThreadDispatcher>();
             Container.RegisterSingleton<UnityMainThreadDispatcher, UnityMainThreadDispatcher>(dispatcher);
-            
+    
+            if (networkConfig == null)
+            {
+                Debug.LogError("[GameInstaller] NetworkConfig not assigned!");
+                networkConfig = ScriptableObject.CreateInstance<NetworkConfig>();
+            }
+            Container.RegisterSingleton<NetworkConfig, NetworkConfig>(networkConfig);
+    
             Debug.Log("[GameInstaller] Core services registered");
         }
 
@@ -57,9 +63,8 @@ namespace Arena.Core.DependencyInjection
             
             var logger = Container.Resolve<IGameLogger>();
 
-            Container.RegisterFactory<NetworkProfiler>(c => new NetworkProfiler(logger));
-            Container.RegisterFactory<IPacketProcessor>(c => new PacketProcessor(logger));
-            Container.RegisterFactory<IConnectionManager>(c => new ConnectionManager(logger));
+            Container.RegisterFactory<IPacketProcessor>(c => new PacketProcessor(networkConfig,logger));
+            Container.RegisterFactory<IConnectionManager>(c => new ConnectionManager(networkConfig, logger));
             Container.RegisterFactory<IMessageRouter>(c => new MessageRouter(logger));
 
             var networkService = gameObject.AddComponent<NetworkService>();

@@ -31,7 +31,7 @@ namespace Arena.Gameplay
             {
                 if (_networkService.IsServer)
                 {
-                    Debug.Log("[ClientBulletManager] Server detected - destroying");
+                    _logger?.Log(LogLevel.Debug, "Bullet", "Server detected - destroying ClientBulletManager");
                     Destroy(gameObject);
                     return;
                 }
@@ -49,7 +49,6 @@ namespace Arena.Gameplay
             
             SubscribeToNetworkEvents();
             
-            Debug.Log("[ClientBulletManager] Initialized for CLIENT");
             _logger?.Log(LogLevel.Info, "Bullet", "ClientBulletManager initialized");
         }
 
@@ -103,7 +102,8 @@ namespace Arena.Gameplay
 
         private void HandleBulletSpawn(BulletSpawnMessage spawnMsg)
         {
-            Debug.Log($"[CLIENT] Received bullet {spawnMsg.BulletId} from Player {spawnMsg.OwnerId}");
+            _logger?.Log(LogLevel.Debug, "Bullet", "Received bullet {0} from Player {1}", 
+                spawnMsg.BulletId, spawnMsg.OwnerId);
             
             if (bulletPrefab == null)
             {
@@ -113,7 +113,7 @@ namespace Arena.Gameplay
 
             if (_networkBullets.ContainsKey(spawnMsg.BulletId))
             {
-                Debug.LogWarning($"[CLIENT] Bullet {spawnMsg.BulletId} Already exists. Skipping.");
+                _logger?.Log(LogLevel.Warning, "Bullet", "Bullet {0} already exists", spawnMsg.BulletId);
                 return;
             }
 
@@ -132,7 +132,8 @@ namespace Arena.Gameplay
 
                 _networkBullets.Add(spawnMsg.BulletId, bulletObj);
 
-                Debug.Log($"[CLIENT] Spawned bullet {spawnMsg.BulletId}, Dictionary size: {_networkBullets.Count}");
+                _logger?.Log(LogLevel.Debug, "Bullet", "Spawned bullet {0}, total: {1}", 
+                    spawnMsg.BulletId, _networkBullets.Count);
             }
             else
             {
@@ -147,15 +148,14 @@ namespace Arena.Gameplay
     
             if (_processedDestroys.Contains(bulletId))
             {
-                Debug.Log($"[CLIENT] Bullet {bulletId} already destroyed, ignoring duplicate");
+                _logger?.Log(LogLevel.Debug, "Bullet", "Bullet {0} already destroyed", bulletId);
                 return;
             }
     
-            Debug.Log($"[CLIENT] Destroy request for bullet {bulletId}, Dictionary has: {_networkBullets.Count} bullets");
-    
             if (!_networkBullets.TryGetValue(bulletId, out var bulletObj))
             {
-                Debug.LogWarning($"[CLIENT] Cannot destroy bullet {bulletId}! Dictionary keys: {string.Join(", ", _networkBullets.Keys)}");
+                _logger?.Log(LogLevel.Warning, "Bullet",
+                    "Cannot destroy bullet {0} - not found", bulletId);
                 _processedDestroys.Add(bulletId); 
                 return;
             }
@@ -169,12 +169,13 @@ namespace Arena.Gameplay
             _networkBullets.Remove(bulletId);
             _processedDestroys.Add(bulletId);
 
-            Debug.Log($"[CLIENT] Destroyed bullet {bulletId}, Dictionary size: {_networkBullets.Count}");
+            _logger?.Log(LogLevel.Debug, "Bullet", "Destroyed bullet {0}, remaining: {1}", 
+                bulletId, _networkBullets.Count);
     
             if (_processedDestroys.Count > 1000)
             {
                 _processedDestroys.Clear();
-                Debug.Log("[CLIENT] Cleared processed destroys cache");
+                _logger?.Log(LogLevel.Debug, "Bullet", "Cleared processed destroys cache");
             }
         }
         

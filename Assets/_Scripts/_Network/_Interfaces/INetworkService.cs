@@ -19,8 +19,7 @@ namespace Arena.Core
         void SendMessage(INetworkMessage message);
         void Disconnect();
         
-        NetworkStatistics GetStatistics();
-        IMessageRouter MessageRouter { get; } // ✅ 추가
+        IMessageRouter MessageRouter { get; }
     }
 
     public class NetworkStatistics
@@ -30,7 +29,5 @@ namespace Arena.Core
         public int UdpPacketsSent { get; set; }
         public int UdpPacketsReceived { get; set; }
         public int RetransmissionCount { get; set; }
-        public float AverageLatencyMs { get; set; }
-        public float PacketLossRate { get; set; }
     }
 }

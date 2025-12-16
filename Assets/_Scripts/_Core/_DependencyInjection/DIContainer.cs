@@ -51,6 +51,7 @@ namespace Arena.Core.DependencyInjection
         {
             var type = typeof(T);
             
+            // Fast path
             if (_singletons.TryGetValue(type, out var singleton))
             {
                 return singleton as T;
@@ -58,24 +59,26 @@ namespace Arena.Core.DependencyInjection
 
             lock (_lock)
             {
-                
+                // Double check
                 if (_singletons.TryGetValue(type, out singleton))
                 {
                     return singleton as T;
                 }
-                
+
+                // Check circular dependencies
                 if (_resolving.Contains(type))
                 {
                     throw new InvalidOperationException($"Circular dependency detected: {type.Name}");
                 }
-                
+
+                // factory
                 if (_factories.TryGetValue(type, out var factory))
                 {
                     _resolving.Add(type);
                     try
                     {
                         var instance = factory(this) as T;
-                        _singletons[type] = instance; 
+                        _singletons[type] = instance; // Cache as singleton
                         Debug.Log($"[DIContainer] Resolved from factory: {type.Name}");
                         return instance;
                     }

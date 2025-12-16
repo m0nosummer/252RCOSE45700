@@ -15,16 +15,13 @@ namespace Arena.Input
         private IGameLogger _logger;
         private Camera _mainCamera;
         
-        // Input State
         public Vector2 MoveInput { get; private set; }
         public Vector2 MouseScreenPosition { get; private set; }
         public Vector3 MouseWorldPosition { get; private set; }
         public bool FirePressed { get; private set; }
         public bool FireHeld { get; private set; }
         
-        // Events
         public event System.Action OnFirePerformed;
-        public event System.Action OnFireCanceled;
         
         public bool IsInputEnabled { get; private set; }
 
@@ -99,7 +96,6 @@ namespace Arena.Input
             if (_inputActions == null) return;
 
             _inputActions.Player.Fire.performed += OnFireInputPerformed;
-            _inputActions.Player.Fire.canceled += OnFireInputCanceled;
         }
 
         private void UnsubscribeFromInputEvents()
@@ -107,7 +103,6 @@ namespace Arena.Input
             if (_inputActions == null) return;
 
             _inputActions.Player.Fire.performed -= OnFireInputPerformed;
-            _inputActions.Player.Fire.canceled -= OnFireInputCanceled;
         }
 
         private void OnFireInputPerformed(InputAction.CallbackContext context)
@@ -119,16 +114,7 @@ namespace Arena.Input
             
             _logger?.Log(LogLevel.Trace, "Input", "Fire pressed");
         }
-
-        private void OnFireInputCanceled(InputAction.CallbackContext context)
-        {
-            if (!IsInputEnabled) return;
-            
-            OnFireCanceled?.Invoke();
-            
-            _logger?.Log(LogLevel.Trace, "Input", "Fire released");
-        }
-
+        
         private void UpdateContinuousInputs()
         {
             if (_inputActions == null) return;
@@ -199,18 +185,6 @@ namespace Arena.Input
             groundLayer = layer;
         }
 
-        public void SetGroundLayer(string layerName)
-        {
-            int layer = LayerMask.NameToLayer(layerName);
-            if (layer == -1)
-            {
-                Debug.LogWarning($"[PlayerInputHandler] Layer '{layerName}' not found!");
-                return;
-            }
-            
-            groundLayer = 1 << layer;
-        }
-        
         private void OnDisable()
         {
             DisableInput();

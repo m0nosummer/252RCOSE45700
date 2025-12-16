@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -9,7 +8,6 @@ using Arena.Core.DependencyInjection;
 using Arena.Core.Utilities;
 using Arena.Logging;
 using Arena.Network.Messages;
-using Arena.Player;
 
 namespace Arena.Network
 {
@@ -24,6 +22,7 @@ namespace Arena.Network
         [SerializeField] private Button clientButton;
         [SerializeField] private TextMeshProUGUI statusText;
         [SerializeField] private GameObject networkTestUI;
+        [SerializeField] private GameObject connectPanel;
         
         [Header("Player Prefab")]
         [SerializeField] private GameObject playerPrefab;
@@ -31,7 +30,6 @@ namespace Arena.Network
         private INetworkService _networkService;
         private IGameLogger _logger;
         private int _localPlayerId = -1;
-        private System.Text.StringBuilder _logBuilder = new System.Text.StringBuilder();
         
         private Dictionary<int, GameObject> _spawnedPlayers = new Dictionary<int, GameObject>();
 
@@ -105,24 +103,24 @@ namespace Arena.Network
         {
             if (_networkService == null)
             {
-                AddLog("[ERROR] NetworkService not available!");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "NetworkService not available!");
                 return;
             }
             try
             {
                 DisableButtons();
                 UpdateStatus("Starting server...");
-                AddLog("[SERVER] Starting...");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Starting server...");
 
                 await _networkService.StartServerAsync(serverPort);
 
                 UpdateStatus($"Server running on port {serverPort}");
-                AddLog($"[SERVER] Started on port {serverPort}");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Server started on port {0}", serverPort);
             }
             catch (Exception ex)
             {
                 UpdateStatus("Failed to start server");
-                AddLog($"[ERROR] Server start failed: {ex.Message}");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "Server start failed: {0}", ex.Message);
                 EnableButtons();
             }
         }
@@ -131,7 +129,7 @@ namespace Arena.Network
         {
             if (_networkService == null)
             {
-                AddLog("[ERROR] NetworkService not available!");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "NetworkService not available!");
                 return;
             }
 
@@ -139,23 +137,23 @@ namespace Arena.Network
             {
                 DisableButtons();
                 UpdateStatus("Connecting to server...");
-                AddLog($"[CLIENT] Connecting to {serverIP}:{serverPort}...");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Connecting to {0}:{1}...", serverIP, serverPort);
 
                 await _networkService.ConnectToServerAsync(serverIP, serverPort);
 
                 UpdateStatus($"Connected to {serverIP}:{serverPort}");
-                AddLog($"[CLIENT] Connected!");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Connected!");
 
                 SendHandshake();
-                if (networkTestUI != null)
+                if (connectPanel != null)
                 {
-                    networkTestUI.SetActive(false);
+                    connectPanel.SetActive(false);
                 }
             }
             catch (Exception ex)
             {
                 UpdateStatus("Failed to connect");
-                AddLog($"[ERROR] Connection failed: {ex.Message}");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "Connection failed: {0}", ex.Message);
                 EnableButtons();
             }
         }
@@ -169,16 +167,15 @@ namespace Arena.Network
             };
 
             _networkService.SendMessage(handshake);
-            AddLog($"[CLIENT] Sent handshake as {handshake.PlayerName}");
+            _logger?.Log(LogLevel.Info, "NetworkTest", "Sent handshake as {0}", handshake.PlayerName);
         }
 
-        // Unity API -> use dispatcher
         private void HandleClientConnected(int clientId)
         {
             UnityMainThreadDispatcher.Enqueue(() =>
             {
                 UpdateStatus($"Client {clientId} connected");
-                AddLog($"[EVENT] Client {clientId} connected - waiting for PlayerJoined...");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Client {0} connected", clientId);
             });
         }
 
@@ -187,7 +184,7 @@ namespace Arena.Network
             UnityMainThreadDispatcher.Enqueue(() =>
             {
                 UpdateStatus($"Client {clientId} disconnected");
-                AddLog($"[EVENT] Client {clientId} disconnected!");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Client {0} disconnected", clientId);
                 RemovePlayer(clientId);
             });
         }
@@ -197,14 +194,15 @@ namespace Arena.Network
             UnityMainThreadDispatcher.Enqueue(() =>
             {
                 UpdateStatus($"Connection failed: {reason}");
-                AddLog($"[ERROR] {reason}");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "Connection failed: {0}", reason);
                 EnableButtons();
             });
         }
 
         private void HandleHandshake(HandshakeMessage handshake, int senderId)
         {
-            AddLog($"[RECEIVED] Handshake from Player {senderId}: {handshake.PlayerName}");
+            _logger?.Log(LogLevel.Info, "NetworkTest", "Handshake from Player {0}: {1}", 
+                senderId, handshake.PlayerName);
 
             if (_networkService.IsServer)
             {
@@ -215,8 +213,6 @@ namespace Arena.Network
                     PlayerName = "Server"
                 };
                 _networkService.SendMessage(response);
-        
-                AddLog($"[SERVER] Sent ID assignment to Client {senderId}");
             }
             else
             {
@@ -225,15 +221,13 @@ namespace Arena.Network
                     if (_localPlayerId == -1)
                     {
                         _localPlayerId = handshake.TargetId;
-                        AddLog($"[CLIENT] Assigned Player ID: {_localPlayerId}");
+                        _logger?.Log(LogLevel.Info, "NetworkTest", "Assigned Player ID: {0}", _localPlayerId);
             
                         if (_spawnedPlayers.ContainsKey(_localPlayerId))
                         {
-                            AddLog($"[FIX] Removing incorrectly spawned remote");
                             RemovePlayer(_localPlayerId);
                         }
             
-                        AddLog($"[CLIENT] Spawning local player {_localPlayerId}");
                         SpawnPlayer(_localPlayerId, true);
                     }
                 }
@@ -242,30 +236,22 @@ namespace Arena.Network
 
         private void SpawnPlayer(int playerId, bool isLocal)
         {
-            Debug.Log($"[SpawnPlayer] Called: playerId={playerId}, isLocal={isLocal}");
+            _logger?.Log(LogLevel.Debug, "NetworkTest", "SpawnPlayer: id={0}, isLocal={1}", playerId, isLocal);
             
             if (_spawnedPlayers.ContainsKey(playerId))
             {
-                AddLog($"[WARNING] Player {playerId} already spawned!");
+                _logger?.Log(LogLevel.Warning, "NetworkTest", "Player {0} already spawned!", playerId);
                 return;
             }
 
             if (playerPrefab == null)
             {
-                Debug.LogError("[SpawnPlayer] Player prefab is NULL!");
-                AddLog("[ERROR] Player prefab not assigned!");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "Player prefab not assigned!");
                 return;
             }
 
-            // TODO : GameConstant 쓰기
-            Vector3[] spawnPositions = {
-                new Vector3(-5f, 1f, 0f),
-                new Vector3(5f, 1f, 0f),
-                new Vector3(-5f, 1f, 5f),
-                new Vector3(5f, 1f, 5f)
-            };
-            
-            Vector3 spawnPos = spawnPositions[playerId % spawnPositions.Length];
+            Vector3 spawnPos = GameConstants.Map.SpawnPositions[playerId % GameConstants.Map.SpawnPositions.Length];
+            spawnPos.y = 1f;
 
             GameObject playerObj = Instantiate(playerPrefab, spawnPos, Quaternion.identity);
             
@@ -278,12 +264,12 @@ namespace Arena.Network
                 
                 _spawnedPlayers[playerId] = playerObj;
                 
-                AddLog($"[{(isLocal ? "LOCAL" : "REMOTE")}] Player {playerId} spawned at {spawnPos}");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "{0} Player {1} spawned at {2}", 
+                    isLocal ? "LOCAL" : "REMOTE", playerId, spawnPos);
             }
             else
             {
-                Debug.LogError("[SpawnPlayer] Player component NOT found on prefab!");
-                AddLog("[ERROR] Player component not found on prefab!");
+                _logger?.Log(LogLevel.Error, "NetworkTest", "Player component not found on prefab!");
                 Destroy(playerObj);
             }
         }
@@ -298,9 +284,10 @@ namespace Arena.Network
                 }
                 _spawnedPlayers.Remove(playerId);
                 
-                AddLog($"[REMOVED] Player {playerId} removed");
+                _logger?.Log(LogLevel.Info, "NetworkTest", "Player {0} removed", playerId);
             }
         }
+        
         private void OnPlayerJoinedMessage(INetworkMessage message, int senderId)
         {
             if (message is PlayerJoinedMessage joinMsg)
@@ -313,26 +300,25 @@ namespace Arena.Network
                 HandlePlayerLeft(leftMsg);
         }
 
-       
         private void HandlePlayerJoined(PlayerJoinedMessage joinMsg)
         {
-            AddLog($"[PLAYER JOIN] Player {joinMsg.PlayerId} joined at {joinMsg.SpawnPosition}");
+            _logger?.Log(LogLevel.Info, "NetworkTest", "Player {0} joined at {1}", 
+                joinMsg.PlayerId, joinMsg.SpawnPosition);
     
             if (_networkService.LocalClientId == -1)
             {
-                AddLog($"[SKIP] LocalClientId not assigned yet");
+                _logger?.Log(LogLevel.Debug, "NetworkTest", "LocalClientId not assigned yet");
                 return;
             }
     
             if (joinMsg.PlayerId == _networkService.LocalClientId)
             {
-                AddLog($"[SKIP] Self (handled in Handshake)");
                 return;
             }
     
             if (_spawnedPlayers.ContainsKey(joinMsg.PlayerId))
             {
-                AddLog($"[WARNING] Player {joinMsg.PlayerId} already exists!");
+                _logger?.Log(LogLevel.Warning, "NetworkTest", "Player {0} already exists!", joinMsg.PlayerId);
                 return;
             }
     
@@ -341,7 +327,7 @@ namespace Arena.Network
 
         private void HandlePlayerLeft(PlayerLeftMessage leftMsg)
         {
-            AddLog($"[PLAYER LEFT] Player {leftMsg.PlayerId} left");
+            _logger?.Log(LogLevel.Info, "NetworkTest", "Player {0} left", leftMsg.PlayerId);
             RemovePlayer(leftMsg.PlayerId);
         }
 
@@ -352,12 +338,7 @@ namespace Arena.Network
                 statusText.text = $"Status: {status}";
             }
             
-            _logger?.Log(LogLevel.Info, "Test", status);
-        }
-
-        private void AddLog(string message)
-        {
-            _logger?.Log(LogLevel.Info, "Test", message);
+            _logger?.Log(LogLevel.Info, "NetworkTest", status);
         }
         
         private void OnDestroy()

@@ -4,7 +4,6 @@ using Arena.Core;
 
 namespace Arena.Network
 {
-    // Base class for network messages
     [Serializable]
     public abstract class NetworkMessage : INetworkMessage
     {
@@ -14,6 +13,7 @@ namespace Arena.Network
         
         protected NetworkMessage()
         {
+            //TODO 보간할 때 쓰기?
             Timestamp = (float)(DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds;
         }
         

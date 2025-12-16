@@ -22,6 +22,8 @@ namespace Arena.Core.Utilities
                 {
                     if (_instance != null)
                         return _instance;
+
+                    // Try to get from DIContainer first
                     var container = GameInstaller.Container;
                     if (container != null && container.IsRegistered<UnityMainThreadDispatcher>())
                     {

@@ -7,16 +7,14 @@ namespace Arena.Core
         PlayerInput = 2,
         PlayerState = 3,
         VisionData = 4,
-        SkillUsed = 5,
-        GameStart = 6,
-        GameEnd = 7,
-        PlayerDeath = 8,
-        Heartbeat = 9,
-        Fire = 10,              // Client→Server: 발사 요청
-        BulletSpawn = 11,       // Server→Client: 총알 생성 명령
-        BulletDestroy = 12,     // Server→Client: 총알 제거 명령
-        Respawn = 13,
-        PlayerJoined = 14,  
-        PlayerLeft = 15
+        PlayerDeath = 5,
+        Heartbeat = 6,
+        Fire = 7,              // Client -> Server: 발사 요청
+        BulletSpawn = 8,       // Server -> Client: 총알 생성 명령
+        BulletDestroy = 9,     // Server -> Client: 총알 제거 명령
+        Respawn = 10,
+        PlayerJoined = 11,  
+        PlayerLeft = 12,
+        GameTime = 13
     }
 }   

@@ -31,14 +31,15 @@ namespace Arena.Gameplay
         {
             if (networkConfig == null)
             {
-                Debug.LogError("[ServerSimulation] NetworkConfig is not assigned!");
+                _logger?.Log(LogLevel.Error, "Server", "NetworkConfig is not assigned!");
                 return;
             }
             
-            _fixedTimestep = 1f / networkConfig.ServerTickRateHz;
+            _fixedTimestep = networkConfig.GetServerTickInterval();
             _accumulatedTime = 0f;
             
-            Debug.Log($"[SERVER] Fixed Timestep: {_fixedTimestep}s ({networkConfig.ServerTickRateHz}Hz)");
+            _logger?.Log(LogLevel.Info, "Server", "Fixed Timestep: {0}s ({1}Hz)", 
+                _fixedTimestep, networkConfig.ServerTickRateHz);
             
             InjectDependencies();
             SubscribeToEvents();
@@ -157,7 +158,6 @@ namespace Arena.Gameplay
                 }
             }
     
-            // Server Reconciliation
             state.LastProcessedInput = input.SequenceNumber;
         }
         
@@ -167,7 +167,7 @@ namespace Arena.Gameplay
             
             if (shooter == null || !shooter.IsAlive)
             {
-                _logger.Log(LogLevel.Warning, "Server", 
+                _logger?.Log(LogLevel.Warning, "Server", 
                     "Fire rejected: Player {0} invalid state", senderId);
                 return;
             }
@@ -183,14 +183,14 @@ namespace Arena.Gameplay
                 Speed = fire.BulletSpeed,
                 Damage = fire.Damage,
                 SpawnTime = Time.time,
-                Lifetime = 3f
+                Lifetime = networkConfig.BulletLifetime
             };
             
             _activeBullets.Add(bulletId, bullet);
             
             var spawnMsg = new BulletSpawnMessage
             {
-                TargetId = -1,  // broadcast
+                TargetId = -1,
                 BulletId = bulletId,
                 OwnerId = senderId,
                 SpawnPosition = fire.FirePosition,
@@ -201,15 +201,14 @@ namespace Arena.Gameplay
             
             _networkService?.SendMessage(spawnMsg);
             
-            _logger.Log(LogLevel.Debug, "Server", 
-                "Bullet {0} spawned by Player {1} - broadcasted to all clients", bulletId, senderId);
+            _logger?.Log(LogLevel.Debug, "Server", 
+                "Bullet {0} spawned by Player {1}", bulletId, senderId);
         }
         
         private void HandleClientHandshake(HandshakeMessage handshake, int senderId)
         {
-            _logger.Log(LogLevel.Info, "Server", 
-                "Handshake from Client {0}: {1} - sending existing players", 
-                senderId, handshake.PlayerName);
+            _logger?.Log(LogLevel.Info, "Server", 
+                "Handshake from Client {0}: {1}", senderId, handshake.PlayerName);
             
             int sentCount = 0;
             foreach (var existingState in _playerStates.Values)
@@ -228,15 +227,11 @@ namespace Arena.Gameplay
                 
                 _networkService?.SendMessage(existingPlayerMsg);
                 sentCount++;
-                
-                _logger.Log(LogLevel.Debug, "Server", 
-                    "Sent existing Player {0} info to Client {1}", 
-                    existingState.PlayerId, senderId);
             }
             
             if (sentCount > 0)
             {
-                _logger.Log(LogLevel.Info, "Server", 
+                _logger?.Log(LogLevel.Info, "Server", 
                     "Sent {0} existing player(s) to Client {1}", sentCount, senderId);
             }
         }
@@ -244,15 +239,7 @@ namespace Arena.Gameplay
         private void OnClientConnected(int clientId)
         {
             int playerId = clientId;
-            
-            Vector3[] spawnPositions = {
-                new Vector3(-5f, 0f, 0f),
-                new Vector3(5f, 0f, 0f),
-                new Vector3(-5f, 0f, 5f),
-                new Vector3(5f, 0f, 5f)
-            };
-            
-            Vector3 spawnPos = spawnPositions[playerId % spawnPositions.Length];
+            Vector3 spawnPos = GameConstants.Map.SpawnPositions[playerId % GameConstants.Map.SpawnPositions.Length];
             
             var newState = new PlayerState
             {
@@ -278,8 +265,8 @@ namespace Arena.Gameplay
             
             _networkService?.SendMessage(joinMsg);
             
-            _logger.Log(LogLevel.Info, "Server", 
-                "Player {0} joined at {1} - broadcasted to all clients", playerId, spawnPos);
+            _logger?.Log(LogLevel.Info, "Server", 
+                "Player {0} joined at {1}", playerId, spawnPos);
         }
 
         private void OnClientDisconnected(int clientId)
@@ -296,8 +283,7 @@ namespace Arena.Gameplay
                 
                 _networkService?.SendMessage(leftMsg);
                 
-                _logger.Log(LogLevel.Info, "Server", 
-                    "Player {0} left - broadcasted to all clients", playerId);
+                _logger?.Log(LogLevel.Info, "Server", "Player {0} left", playerId);
             }
         }
 
@@ -319,65 +305,80 @@ namespace Arena.Gameplay
                 Vector3 prevPosition = bullet.Position;
                 bullet.Position += bullet.Direction * bullet.Speed * Time.deltaTime;
                 
-                float moveDistance = Vector3.Distance(prevPosition, bullet.Position);
-                RaycastHit hit;
-                
-                bool hitSomething = Physics.Raycast(
-                    prevPosition,
-                    bullet.Direction,
-                    out hit,
-                    moveDistance,
-                    LayerMask.GetMask("Player", "Default")
-                );
-                
-                if (hitSomething)
+                // 플레이어 히트 (수학적 계산)
+                foreach (var playerState in _playerStates.Values)
                 {
-                    var hitPlayerComponent = hit.collider.GetComponent<Arena.Player.Player>();
-                    if (hitPlayerComponent != null && hitPlayerComponent.PlayerId != bullet.OwnerId)
-                    {
-                        var targetState = _playerStates.GetValueOrDefault(hitPlayerComponent.PlayerId);
-                        if (targetState != null && targetState.IsAlive)
-                        {
-                            targetState.Health -= bullet.Damage;
-                            
-                            _logger.Log(LogLevel.Info, "Server", 
-                                "Bullet {0} hit Player {1}. Damage: {2}, Remaining HP: {3}",
-                                bullet.BulletId, hitPlayerComponent.PlayerId, bullet.Damage, targetState.Health);
-                            
-                            if (targetState.Health <= 0)
-                            {
-                                targetState.IsAlive = false;
-                                targetState.Health = 0;
-                                
-                                _logger.Log(LogLevel.Info, "Server", 
-                                    "Player {0} killed Player {1}", bullet.OwnerId, hitPlayerComponent.PlayerId);
-                            }
-                            
-                            bulletsToRemove.Add(kvp.Key);
-                            BroadcastBulletDestroy(kvp.Key, DestroyReason.HitPlayer);
-                            continue;
-                        }
-                    }
+                    if (playerState.PlayerId == bullet.OwnerId) continue;
+                    if (!playerState.IsAlive) continue;
                     
-                    if (hit.collider.CompareTag("Default") || hit.collider.gameObject.layer == LayerMask.NameToLayer("Default"))
+                    float distance = DistancePointToLineSegment(
+                        playerState.Position, prevPosition, bullet.Position);
+                    
+                    if (distance <= GameConstants.Physics.PlayerRadius)
                     {
+                        playerState.Health -= bullet.Damage;
+                        
+                        _logger?.Log(LogLevel.Info, "Server", 
+                            "Bullet {0} hit Player {1}. Damage: {2}, HP: {3}",
+                            bullet.BulletId, playerState.PlayerId, bullet.Damage, playerState.Health);
+                        
+                        if (playerState.Health <= 0)
+                        {
+                            playerState.IsAlive = false;
+                            playerState.Health = 0;
+                            _logger?.Log(LogLevel.Info, "Server", 
+                                "Player {0} killed Player {1}", bullet.OwnerId, playerState.PlayerId);
+                        }
+                        
                         bulletsToRemove.Add(kvp.Key);
-                        BroadcastBulletDestroy(kvp.Key, DestroyReason.HitWall);
-                        continue;
+                        BroadcastBulletDestroy(kvp.Key, DestroyReason.HitPlayer);
+                        goto NextBullet;
                     }
                 }
                 
-                if (Mathf.Abs(bullet.Position.x) > 50f || Mathf.Abs(bullet.Position.z) > 50f)
+                // 벽 히트 (Physics)
+                float moveDistance = Vector3.Distance(prevPosition, bullet.Position);
+                if (Physics.Raycast(prevPosition, bullet.Direction, out _, moveDistance, 
+                    LayerMask.GetMask("Default")))
+                {
+                    bulletsToRemove.Add(kvp.Key);
+                    BroadcastBulletDestroy(kvp.Key, DestroyReason.HitWall);
+                    continue;
+                }
+                
+                // 맵 경계
+                if (Mathf.Abs(bullet.Position.x) > GameConstants.Map.MaxBound || 
+                    Mathf.Abs(bullet.Position.z) > GameConstants.Map.MaxBound)
                 {
                     bulletsToRemove.Add(kvp.Key);
                     BroadcastBulletDestroy(kvp.Key, DestroyReason.Timeout);
                 }
+                
+                NextBullet:;
             }
             
             foreach (var bulletId in bulletsToRemove)
             {
                 _activeBullets.Remove(bulletId);
             }
+        }
+
+        private float DistancePointToLineSegment(Vector3 point, Vector3 lineStart, Vector3 lineEnd)
+        {
+            Vector2 p = new Vector2(point.x, point.z);
+            Vector2 a = new Vector2(lineStart.x, lineStart.z);
+            Vector2 b = new Vector2(lineEnd.x, lineEnd.z);
+            
+            Vector2 ab = b - a;
+            Vector2 ap = p - a;
+            
+            float abLengthSqr = ab.sqrMagnitude;
+            if (abLengthSqr < 0.0001f) return Vector2.Distance(p, a);
+            
+            float t = Mathf.Clamp01(Vector2.Dot(ap, ab) / abLengthSqr);
+            Vector2 closest = a + t * ab;
+            
+            return Vector2.Distance(p, closest);
         }
 
         private void BroadcastBulletDestroy(uint bulletId, DestroyReason reason)
@@ -391,16 +392,14 @@ namespace Arena.Gameplay
             
             _networkService?.SendMessage(destroyMsg);
             
-            _logger.Log(LogLevel.Debug, "Server", 
-                "Bullet {0} destroyed ({1})", bulletId, reason);
+            _logger?.Log(LogLevel.Debug, "Server", "Bullet {0} destroyed ({1})", bulletId, reason);
         }
 
-        // Synchronization
         private void BroadcastPlayerStates()
         {
             _stateUpdateTimer += Time.deltaTime;
             
-            float updateInterval = 1f / networkConfig.ServerTickRateHz;
+            float updateInterval = networkConfig.GetServerTickInterval();
             
             if (_stateUpdateTimer >= updateInterval)
             {
@@ -428,6 +427,7 @@ namespace Arena.Gameplay
                 }
             }
         }
+        
         private uint GetNextBulletId()
         {
             lock (_bulletIdLock)
@@ -435,10 +435,12 @@ namespace Arena.Gameplay
                 return _nextBulletId++;
             }
         }
+        
         private void OnDestroy()
         {
             UnsubscribeFromEvents();
         }
+        
         private class PlayerState
         {
             public int PlayerId;

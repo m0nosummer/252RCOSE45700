@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
@@ -17,12 +18,18 @@ namespace Arena.Network
         private readonly HashSet<uint> _acknowledgedPackets = new();
         private readonly Stopwatch _stopwatch = new();
         
-        private const double RETRY_TIMEOUT = 0.2;
-        private const int MAX_RETRIES = 5;
+        private double _retryTimeout = 0.2;
+        private int _maxRetries = 5;
 
         public ReliableUdpManager()
         {
             _stopwatch.Start();
+        }
+        
+        public void Configure(float retryTimeout, int maxRetries)
+        {
+            _retryTimeout = retryTimeout;
+            _maxRetries = maxRetries;
         }
 
         public void TrackPacket(uint sequenceNumber, byte[] data)
@@ -40,10 +47,10 @@ namespace Arena.Network
         {
             if (data.Length == 8)
             {
-                uint magic = System.BitConverter.ToUInt32(data, 0); // First 4 bytes
+                uint magic = BitConverter.ToUInt32(data, 0);
                 if (magic == 0x41434B00)
                 {
-                    uint seq = System.BitConverter.ToUInt32(data, 4); // Next 4 bytes
+                    uint seq = BitConverter.ToUInt32(data, 4);
                     _acknowledgedPackets.Add(seq);
                     _pendingPackets.Remove(seq);
                     return true;
@@ -52,7 +59,6 @@ namespace Arena.Network
             return false;
         }
 
-        // not 'MonoBehaviour Update'
         public void Update()
         {
             double currentTime = _stopwatch.Elapsed.TotalSeconds;
@@ -62,11 +68,11 @@ namespace Arena.Network
             {
                 var packet = kvp.Value;
                 
-                if (currentTime - packet.LastSendTime > RETRY_TIMEOUT)
+                if (currentTime - packet.LastSendTime > _retryTimeout)
                 {
-                    if (packet.RetryCount >= MAX_RETRIES)
+                    if (packet.RetryCount >= _maxRetries)
                     {
-                        UnityEngine.Debug.LogWarning($"[ReliableUDP] Packet {packet.SequenceNumber} failed after {MAX_RETRIES} retries");
+                        UnityEngine.Debug.LogWarning($"[ReliableUDP] Packet {packet.SequenceNumber} failed after {_maxRetries} retries");
                         toRemove.Add(kvp.Key);
                     }
                 }
@@ -87,7 +93,7 @@ namespace Arena.Network
             {
                 var packet = kvp.Value;
                 
-                if (currentTime - packet.LastSendTime > RETRY_TIMEOUT && packet.RetryCount < MAX_RETRIES)
+                if (currentTime - packet.LastSendTime > _retryTimeout && packet.RetryCount < _maxRetries)
                 {
                     packet.LastSendTime = currentTime;
                     packet.RetryCount++;

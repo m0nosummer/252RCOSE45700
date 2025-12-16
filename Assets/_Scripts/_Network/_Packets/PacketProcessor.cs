@@ -13,14 +13,16 @@ namespace Arena.Network
         private readonly PacketManager _packetManager;
         private uint _sequenceNumber;
         private readonly object _sequenceLock = new();
+        
+        private NetworkConfig _config;
 
-        public PacketProcessor(IGameLogger logger)
+        public PacketProcessor(NetworkConfig config, IGameLogger logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _config = config ?? throw new ArgumentNullException(nameof(config));
             _packetManager = new PacketManager(logger);
         }
 
-        // Message -> Packet
         public NetworkPacket[] CreatePackets(INetworkMessage message)
         {
             if (message == null)
@@ -38,7 +40,7 @@ namespace Arena.Network
 
                 var packets = new List<NetworkPacket>();
 
-                if (messageData.Length <= GameConstants.Network.MaxPayloadSize)
+                if (messageData.Length <= GameConstants.Protocol.MaxPayloadSize)
                 {
                     var packet = CreateSinglePacket(messageData, compress, message.Type);
                     packet.Header.TargetClientId = message.TargetId;
@@ -89,7 +91,6 @@ namespace Arena.Network
             }
         }
 
-
         private NetworkPacket CreateSinglePacket(byte[] data, bool compressed, MessageType messageType)
         {
             var flags = compressed ? PacketFlags.Compressed : PacketFlags.None;
@@ -116,12 +117,12 @@ namespace Arena.Network
         {
             var packets = new List<NetworkPacket>();
             var fragmentId = (ushort)(GetNextSequenceNumber() & 0xFFFF);
-            var totalFragments = (int)Math.Ceiling((double)data.Length / GameConstants.Network.MaxPayloadSize);
+            var totalFragments = (int)Math.Ceiling((double)data.Length / GameConstants.Protocol.MaxPayloadSize);
 
             for (int i = 0; i < totalFragments; i++)
             {
-                var offset = i * GameConstants.Network.MaxPayloadSize;
-                var length = Math.Min(GameConstants.Network.MaxPayloadSize, data.Length - offset);
+                var offset = i * GameConstants.Protocol.MaxPayloadSize;
+                var length = Math.Min(GameConstants.Protocol.MaxPayloadSize, data.Length - offset);
                 var fragmentData = new byte[length];
                 Array.Copy(data, offset, fragmentData, 0, length);
 
@@ -145,7 +146,7 @@ namespace Arena.Network
                 packets.Add(packet);
             }
 
-            _logger.Log(LogLevel.Debug, "Packet", "Created {0} fragments for message", totalFragments);
+            _logger.Log(LogLevel.Debug, "Packet", "Created {0} fragments", totalFragments);
             return packets;
         }
 
@@ -172,8 +173,8 @@ namespace Arena.Network
                 }
                 
                 var compressed = output.ToArray();
-                _logger.Log(LogLevel.Debug, "Compression", "Compressed {0} -> {1} bytes ({2:P1})", 
-                    data.Length, compressed.Length, (float)compressed.Length / data.Length);
+                _logger.Log(LogLevel.Debug, "Compression", "Compressed {0} -> {1} bytes", 
+                    data.Length, compressed.Length);
                 
                 return compressed;
             }
@@ -204,7 +205,10 @@ namespace Arena.Network
 
         private bool ShouldCompress(MessageType type, int dataLength)
         {
-            return dataLength > 100 && (type == MessageType.VisionData);
+            int threshold = _config != null ? _config.CompressionThresholdBytes : 100;
+            bool enableCompression = _config != null ? _config.EnableCompression : true;
+            
+            return enableCompression && dataLength > threshold && (type == MessageType.VisionData);
         }
 
         private uint GetNextSequenceNumber()
